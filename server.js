@@ -41,12 +41,20 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (With Quality Gate) ---
+// --- 4. The Core Scraper Function (With User-Agent Header) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
     
-    const response = await axios.get('https://epoch.strykersoft.us/');
+    // ================== THE CRITICAL FIX ==================
+    // We are adding headers to mimic a real web browser.
+    const response = await axios.get('https://epoch.strykersoft.us/', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+      }
+    });
+    // ======================================================
+
     const html = response.data;
     const $ = cheerio.load(html);
 
@@ -59,14 +67,11 @@ async function checkServerStatus() {
       }
     });
 
-    // ================== THE FINAL FIX: THE QUALITY GATE ==================
-    // If our scrape resulted in zero servers, we assume the scrape failed.
-    // We will not proceed, preserving the last known good status in Redis.
+    // Quality Gate: If the scrape (which should now succeed) returns 0 servers, we stop.
     if (newStatuses.length === 0) {
-      console.log('Scrape returned 0 servers. Assuming upstream failure. Skipping update.');
-      return; // End the function here.
+      console.log('Scrape returned 0 servers. Website structure may have changed. Skipping update.');
+      return; 
     }
-    // =====================================================================
     
     const newStatusesString = JSON.stringify(newStatuses);
     const oldStatusesJSON = await redis.get('serverStatuses');
@@ -77,10 +82,10 @@ async function checkServerStatus() {
             oldStatuses = JSON.parse(oldStatusesJSON);
         } catch (e) {
             console.error('Found corrupted data in Redis, will overwrite with fresh data. Error:', e.message);
-            // We no longer delete the key, we just let the good data overwrite it.
         }
     }
 
+    // Only broadcast if there was a valid old status and it's different.
     if (oldStatuses && newStatusesString !== oldStatusesJSON) {
         console.log('STATUS CHANGE DETECTED!');
         broadcast({
@@ -90,7 +95,7 @@ async function checkServerStatus() {
         });
     }
 
-    // Only good, valid data will ever reach this line.
+    // Always save the latest valid scrape.
     await redis.set('serverStatuses', newStatusesString);
 
   } catch (error) {
@@ -98,7 +103,7 @@ async function checkServerStatus() {
   }
 }
 
-// --- 5. Serve our Frontend File and other API endpoints (Now also Safe) ---
+// --- 5. Serve our Frontend File and other API endpoints ---
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });

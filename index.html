@@ -6,13 +6,22 @@
     <title>Epoch Server Status Monitor</title>
     <style>
         body { background-color: #1a1a2e; color: #e0e0e0; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; text-align: center; }
+        
+        /* --- NEW: This wrapper will stack the logo and the status box vertically --- */
+        #main-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
         .container { padding: 40px; background-color: #16213e; border-radius: 15px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3); min-width: 300px; }
         
-        /* --- CHANGE 1: Style for the new logo image --- */
+        /* The logo is no longer constrained by the container's padding */
         #logo {
-            max-width: 90%;
+            max-width: 500px; /* Adjust size as needed */
+            width: 90%;
             height: auto;
-            margin-bottom: 20px;
+            margin-bottom: 25px; /* Creates space between logo and status box */
         }
 
         #status-container { margin-top: 20px; text-align: left; }
@@ -33,18 +42,20 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- --- CHANGE 1: Replaced H1 text with the logo image --- -->
+    <!-- --- NEW: A main wrapper to hold the logo and the container separately --- -->
+    <div id="main-wrapper">
+        <!-- The logo is now outside the container/frame -->
         <img id="logo" src="https://www.project-epoch.net/img/global/full-logo.webp" alt="Project Epoch Logo">
 
-        <div id="status-container"><p>Loading status...</p></div>
-        <button id="notify-btn">Enable Notifications</button>
-
-        <!-- --- CHANGE 2: Corrected capitalization in the footer --- -->
-        <p class="footer-text">
-            Made possible by the <a href="https://epoch.strykersoft.us/" target="_blank" rel="noopener noreferrer">status page</a> from <a href="https://www.reddit.com/user/stryker2k2/" target="_blank" rel="noopener noreferrer">@stryker2k2</a>
-            <br>Not affiliated with <a href="https://www.project-epoch.net/" target="_blank" rel="noopener noreferrer">Project Epoch</a>
-        </p>
+        <!-- The container now only holds the status info -->
+        <div class="container">
+            <div id="status-container"><p>Loading status...</p></div>
+            <button id="notify-btn">Enable Notifications</button>
+            <p class="footer-text">
+                Made possible by the <a href="https://epoch.strykersoft.us/" target="_blank" rel="noopener noreferrer">status page</a> from <a href="https://www.reddit.com/user/stryker2k2/" target="_blank" rel="noopener noreferrer">@stryker2k2</a>
+                <br>Not affiliated with <a href="https://www.project-epoch.net/" target="_blank" rel="noopener noreferrer">Project Epoch</a>
+            </p>
+        </div>
     </div>
 
     <script>

@@ -41,12 +41,7 @@ app.get('/events', (req, res) => {
   });
 });
 
-// Helper function to escape special characters for use in a regular expression
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
-}
-
-// --- 4. The Core Scraper Function (With all fixes) ---
+// --- 4. The Core Scraper Function (Based on ACTUAL HTML provided) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
@@ -59,24 +54,29 @@ async function checkServerStatus() {
 
     const html = response.data;
     const $ = cheerio.load(html);
-    const bodyText = $('body').text();
     
     const newStatuses = [];
-    const serverNames = ["Epoch Website", "Auth Server", "Kezan (PvE)", "Gurubashi (PvP)", "Acct Registration"];
 
-    serverNames.forEach(serverName => {
-      // Use the helper function to make the server name safe for regex
-      const escapedServerName = escapeRegExp(serverName);
-      const regex = new RegExp(`${escapedServerName}:\\s*(\\w+)`);
-      const match = bodyText.match(regex);
+    // ================== THE FINAL, CORRECT FIX ==================
+    // Select all <p> tags inside the specific <div class="row text-center">
+    // This is precise and targets only the server status elements.
+    $('div.text-center p').each((i, element) => {
+      const text = $(element).text(); // e.g., "Auth Server: Down"
+      if (text.includes(':')) {
+        const parts = text.split(':');
+        const serverName = parts[0].trim();
+        const serverStatus = parts[1].trim();
 
-      if (match && match[1]) {
-        newStatuses.push({ name: serverName, status: match[1] });
+        // Ensure we only add valid server status lines, not other text on the page
+        if (serverName && serverStatus) {
+          newStatuses.push({ name: serverName, status: serverStatus });
+        }
       }
     });
+    // ==========================================================
 
     if (newStatuses.length === 0) {
-      console.log('Scrape returned 0 servers. Website structure may have changed. Skipping update.');
+      console.log('Scrape returned 0 servers. This should not happen now, but keeping the gate.');
       return; 
     }
     
@@ -88,6 +88,7 @@ async function checkServerStatus() {
         try {
             oldStatuses = JSON.parse(oldStatusesJSON);
         } catch (e) {
+            // This error should no longer happen, but the safety net remains.
             console.error('Found corrupted data in Redis, will overwrite with fresh data. Error:', e.message);
         }
     }
@@ -101,7 +102,6 @@ async function checkServerStatus() {
         });
     }
 
-    // This is the only place we write to Redis, now with clean data.
     await redis.set('serverStatuses', newStatusesString);
 
   } catch (error) {

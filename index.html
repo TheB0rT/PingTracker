@@ -7,7 +7,14 @@
     <style>
         body { background-color: #1a1a2e; color: #e0e0e0; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; text-align: center; }
         .container { padding: 40px; background-color: #16213e; border-radius: 15px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3); min-width: 300px; }
-        h1 { color: #0f3460; margin-top: 0; }
+        
+        /* --- CHANGE 1: Style for the new logo image --- */
+        #logo {
+            max-width: 90%;
+            height: auto;
+            margin-bottom: 20px;
+        }
+
         #status-container { margin-top: 20px; text-align: left; }
         .status-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a3a5e; }
         .status-row:last-child { border-bottom: none; }
@@ -17,9 +24,8 @@
         .unknown { color: #aaa; }
 
         button { background-color: #e94560; color: white; border: none; padding: 10px 15px; border-radius: 5px; font-size: 1rem; cursor: pointer; margin-top: 20px; transition: background-color 0.3s; }
-        /* When the button is disabled, it will be green (for 'granted') or grey (for 'denied') */
         button:disabled { background-color: #28a745; cursor: not-allowed; }
-        button.denied:disabled { background-color: #6c757d; } /* Grey for blocked */
+        button.denied:disabled { background-color: #6c757d; }
 
         .footer-text { font-size: 0.8rem; color: #aaa; margin-top: 30px; }
         .footer-text a { color: #e94560; text-decoration: none; }
@@ -28,11 +34,15 @@
 </head>
 <body>
     <div class="container">
-        <h1>Epoch Server Status</h1>
+        <!-- --- CHANGE 1: Replaced H1 text with the logo image --- -->
+        <img id="logo" src="https://www.project-epoch.net/static/images/logos/full_logo.png" alt="Project Epoch Logo">
+
         <div id="status-container"><p>Loading status...</p></div>
         <button id="notify-btn">Enable Notifications</button>
+
+        <!-- --- CHANGE 2: Corrected capitalization in the footer --- -->
         <p class="footer-text">
-            Not Affiliated with <a href="https://www.project-epoch.net/" target="_blank" rel="noopener noreferrer">Project Epoch</a>
+            Not affiliated with <a href="https://www.project-epoch.net/" target="_blank" rel="noopener noreferrer">Project Epoch</a>
         </p>
     </div>
 
@@ -63,7 +73,6 @@
             }
         }
 
-        // --- NEW: A single function to update the button's appearance based on permission state ---
         function updateButtonState(state) {
             notifyBtn.classList.remove('denied');
             if (state === 'granted') {
@@ -79,30 +88,21 @@
             }
         }
 
-        // --- NEW: This block handles all permission logic ---
-        // It checks the state on load and listens for any changes.
         if ('permissions' in navigator) {
             navigator.permissions.query({name: 'notifications'}).then(permissionStatus => {
-                // 1. Set the initial state of the button when the page loads
                 updateButtonState(permissionStatus.state);
-
-                // 2. Listen for any changes to the permission
                 permissionStatus.onchange = () => {
                     updateButtonState(permissionStatus.state);
                 };
             });
         } else {
-            // Fallback for older browsers: just check the permission on load.
             updateButtonState(Notification.permission);
         }
 
-        // The click listener is now simpler: it just asks for permission.
-        // The 'onchange' event above will handle the result.
         notifyBtn.addEventListener('click', () => {
             Notification.requestPermission();
         });
 
-        // --- The rest of the script is unchanged ---
         fetch('/api/initial-status')
             .then(res => res.json())
             .then(renderStatuses);
@@ -113,7 +113,21 @@
             const data = JSON.parse(event.data);
             if (data.type === 'STATUS_CHANGE') {
                 renderStatuses(data.payload);
-                // ... notification logic ...
+                const oldStatuses = data.oldPayload;
+                const newStatuses = data.payload;
+                let changes = [];
+                newStatuses.forEach(newServer => {
+                    const oldServer = oldStatuses.find(s => s.name === newServer.name);
+                    if (oldServer && oldServer.status !== newServer.status) {
+                        changes.push(`${newServer.name} is now ${newServer.status}`);
+                    }
+                });
+                if (changes.length > 0) {
+                    showNotification('Epoch Server Status Changed!', {
+                        body: changes.join('\n'),
+                        icon: 'https://cdn-icons-png.flaticon.com/512/1004/1004735.png'
+                    });
+                }
             }
         };
 

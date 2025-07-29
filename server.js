@@ -41,39 +41,35 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (Corrected for the REAL website structure) ---
+// --- 4. The Core Scraper Function (Based on ACTUAL site content) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
     
     const response = await axios.get('https://epoch.strykersoft.us/', {
-      headers: { // Keep the user-agent, it's good practice
+      headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
       }
     });
 
     const html = response.data;
     const $ = cheerio.load(html);
-
-    // ================== THE REAL FIX ==================
-    // The website does not use a table. We will extract text and parse it manually.
+    const bodyText = $('body').text(); // Get the single line of text, e.g., "...Auth Server: Down Kezan (PvE): Down..."
+    
     const newStatuses = [];
-    const bodyText = $('body').text(); // Get all text from the page
-    const lines = bodyText.split('\n').map(line => line.trim()).filter(Boolean); // Split into lines
+    // Define the exact server names to look for
+    const serverNames = ["Epoch Website", "Auth Server", "Kezan (PvE)", "Gurubashi (PvP)", "Acct Registration"];
 
-    // Find lines that contain server status keywords
-    const keywords = ["Auth Server", "Kezan", "Gurubashi", "Acct Registration"];
-    lines.forEach(line => {
-      keywords.forEach(keyword => {
-        if (line.startsWith(keyword)) {
-          const parts = line.split(':');
-          const serverName = parts[0].trim();
-          const serverStatus = parts[1] ? parts[1].trim() : 'Unknown';
-          newStatuses.push({ name: serverName, status: serverStatus });
-        }
-      });
+    // For each server name, find its status in the text string
+    serverNames.forEach(serverName => {
+      // This regex looks for the server name, a colon, whitespace, and captures the next word (Up/Down)
+      const regex = new RegExp(`${serverName}:\\s*(\\w+)`);
+      const match = bodyText.match(regex);
+
+      if (match && match[1]) {
+        newStatuses.push({ name: serverName, status: match[1] });
+      }
     });
-    // ======================================================
 
     if (newStatuses.length === 0) {
       console.log('Scrape returned 0 servers. Website structure may have changed. Skipping update.');

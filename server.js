@@ -41,33 +41,40 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (With User-Agent Header) ---
+// --- 4. The Core Scraper Function (Corrected for the REAL website structure) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
     
-    // ================== THE CRITICAL FIX ==================
-    // We are adding headers to mimic a real web browser.
     const response = await axios.get('https://epoch.strykersoft.us/', {
-      headers: {
+      headers: { // Keep the user-agent, it's good practice
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
       }
     });
-    // ======================================================
 
     const html = response.data;
     const $ = cheerio.load(html);
 
+    // ================== THE REAL FIX ==================
+    // The website does not use a table. We will extract text and parse it manually.
     const newStatuses = [];
-    $('tbody tr').each((i, row) => {
-      const serverName = $(row).find('td').eq(0).text().trim();
-      const serverStatus = $(row).find('td').eq(1).text().trim();
-      if (serverName) {
-        newStatuses.push({ name: serverName, status: serverStatus });
-      }
-    });
+    const bodyText = $('body').text(); // Get all text from the page
+    const lines = bodyText.split('\n').map(line => line.trim()).filter(Boolean); // Split into lines
 
-    // Quality Gate: If the scrape (which should now succeed) returns 0 servers, we stop.
+    // Find lines that contain server status keywords
+    const keywords = ["Auth Server", "Kezan", "Gurubashi", "Acct Registration"];
+    lines.forEach(line => {
+      keywords.forEach(keyword => {
+        if (line.startsWith(keyword)) {
+          const parts = line.split(':');
+          const serverName = parts[0].trim();
+          const serverStatus = parts[1] ? parts[1].trim() : 'Unknown';
+          newStatuses.push({ name: serverName, status: serverStatus });
+        }
+      });
+    });
+    // ======================================================
+
     if (newStatuses.length === 0) {
       console.log('Scrape returned 0 servers. Website structure may have changed. Skipping update.');
       return; 
@@ -85,7 +92,6 @@ async function checkServerStatus() {
         }
     }
 
-    // Only broadcast if there was a valid old status and it's different.
     if (oldStatuses && newStatusesString !== oldStatusesJSON) {
         console.log('STATUS CHANGE DETECTED!');
         broadcast({
@@ -95,7 +101,6 @@ async function checkServerStatus() {
         });
     }
 
-    // Always save the latest valid scrape.
     await redis.set('serverStatuses', newStatusesString);
 
   } catch (error) {

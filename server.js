@@ -41,7 +41,7 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (Now with Paranoid Validation) ---
+// --- 4. The Core Scraper Function (Robust and Safe) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
@@ -59,37 +59,28 @@ async function checkServerStatus() {
       }
     });
     
-    // Convert our freshly scraped data to a string once.
     const newStatusesString = JSON.stringify(newStatuses);
-
-    // --- The New, Robust Logic ---
     const oldStatusesJSON = await redis.get('serverStatuses');
     let oldStatuses = null;
 
-    // First, check if there's any old data at all.
     if (oldStatusesJSON) {
-        // If there is, immediately try to parse it. This is our validation step.
         try {
             oldStatuses = JSON.parse(oldStatusesJSON);
         } catch (e) {
-            console.error('CORRUPTED DATA IN REDIS! Deleting key to self-heal. Error:', e.message);
-            console.error('Corrupted data was:', oldStatusesJSON);
-            await redis.del('serverStatuses'); // Self-heal by deleting the bad key.
-            // oldStatuses remains null.
+            console.error('CRON JOB found corrupted data in Redis. Deleting key to self-heal. Error:', e.message);
+            await redis.del('serverStatuses');
         }
     }
 
-    // We only proceed if we successfully parsed the old data and it's different from the new data.
     if (oldStatuses && newStatusesString !== oldStatusesJSON) {
         console.log('STATUS CHANGE DETECTED!');
         broadcast({
             type: 'STATUS_CHANGE',
             payload: newStatuses,
-            oldPayload: oldStatuses // Use the safely parsed object
+            oldPayload: oldStatuses
         });
     }
 
-    // Always update Redis with the latest VALID status string.
     await redis.set('serverStatuses', newStatusesString);
 
   } catch (error) {
@@ -102,11 +93,26 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// ================== THE FINAL FIX IS HERE ==================
+// Applying the same paranoid validation to the initial status endpoint.
 app.get('/api/initial-status', async (req, res) => {
     const statusesJSON = await redis.get('serverStatuses');
-    const statuses = statusesJSON ? JSON.parse(statusesJSON) : [];
+    let statuses = []; // Default to a safe, empty array
+
+    if (statusesJSON) {
+        try {
+            // Only attempt to parse if we actually got something.
+            statuses = JSON.parse(statusesJSON);
+        } catch (e) {
+            // If it fails, log the error but do not crash. Send the safe empty array.
+            console.error('API ENDPOINT found corrupted data. Sending empty array to client. Error:', e.message);
+        }
+    }
+    
     res.json(statuses);
 });
+// ========================================================
+
 
 // --- 6. Start Everything ---
 app.listen(PORT, () => {

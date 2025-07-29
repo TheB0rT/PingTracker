@@ -41,7 +41,7 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (Based on ACTUAL HTML provided) ---
+// --- 4. The Core Scraper Function (With a final diagnostic log) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
@@ -56,27 +56,20 @@ async function checkServerStatus() {
     const $ = cheerio.load(html);
     
     const newStatuses = [];
-
-    // ================== THE FINAL, CORRECT FIX ==================
-    // Select all <p> tags inside the specific <div class="row text-center">
-    // This is precise and targets only the server status elements.
     $('div.text-center p').each((i, element) => {
-      const text = $(element).text(); // e.g., "Auth Server: Down"
+      const text = $(element).text();
       if (text.includes(':')) {
         const parts = text.split(':');
         const serverName = parts[0].trim();
         const serverStatus = parts[1].trim();
-
-        // Ensure we only add valid server status lines, not other text on the page
         if (serverName && serverStatus) {
           newStatuses.push({ name: serverName, status: serverStatus });
         }
       }
     });
-    // ==========================================================
 
     if (newStatuses.length === 0) {
-      console.log('Scrape returned 0 servers. This should not happen now, but keeping the gate.');
+      console.log('Scrape returned 0 servers. Website structure may have changed. Skipping update.');
       return; 
     }
     
@@ -88,7 +81,6 @@ async function checkServerStatus() {
         try {
             oldStatuses = JSON.parse(oldStatusesJSON);
         } catch (e) {
-            // This error should no longer happen, but the safety net remains.
             console.error('Found corrupted data in Redis, will overwrite with fresh data. Error:', e.message);
         }
     }
@@ -101,6 +93,12 @@ async function checkServerStatus() {
             oldPayload: oldStatuses
         });
     }
+
+    // ================== THE FINAL DIAGNOSTIC LOGS ==================
+    console.log('>>> Preparing to write to Redis.');
+    console.log('>>> Data to be written:', newStatusesString);
+    console.log('>>> Type of data:', typeof newStatusesString);
+    // =============================================================
 
     await redis.set('serverStatuses', newStatusesString);
 

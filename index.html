@@ -11,9 +11,28 @@
         #status-container { margin-top: 20px; text-align: left; }
         .status-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a3a5e; }
         .status-row:last-child { border-bottom: none; }
-        .status-online { color: #50fa7b; }
-        .status-offline { color: #ff5555; font-weight: bold; }
-        button { background-color: #e94560; color: white; border: none; padding: 10px 15px; border-radius: 5px; font-size: 1rem; cursor: pointer; margin-top: 20px; }
+
+        /* --- CHANGE 1: Added colors for Up/Down statuses --- */
+        .up { color: #28a745; font-weight: bold; } /* Green */
+        .down { color: #ff5555; font-weight: bold; } /* Red */
+        .unknown { color: #aaa; } /* Grey for unknown status */
+
+        button { background-color: #e94560; color: white; border: none; padding: 10px 15px; border-radius: 5px; font-size: 1rem; cursor: pointer; margin-top: 20px; transition: background-color 0.3s; }
+        button:disabled { background-color: #28a745; cursor: not-allowed; }
+
+        /* --- CHANGE 2: Style for the new footer text --- */
+        .footer-text {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-top: 30px;
+        }
+        .footer-text a {
+            color: #e94560;
+            text-decoration: none;
+        }
+        .footer-text a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -21,21 +40,26 @@
         <h1>Epoch Server Status</h1>
         <div id="status-container"><p>Loading status...</p></div>
         <button id="notify-btn">Enable Notifications</button>
+
+        <!-- --- CHANGE 2: Added affiliation footer with hyperlink --- -->
+        <p class="footer-text">
+            Not Affiliated with <a href="https://www.project-epoch.net/" target="_blank" rel="noopener noreferrer">Project Epoch</a>
+        </p>
     </div>
 
     <script>
         const statusContainer = document.getElementById('status-container');
         const notifyBtn = document.getElementById('notify-btn');
 
-        // Function to render the server statuses on the page
+        // This function now correctly applies 'up' or 'down' as a class
         function renderStatuses(statuses) {
             if (!statuses || statuses.length === 0) {
                 statusContainer.innerHTML = '<p>Status not available yet.</p>';
                 return;
             }
-            statusContainer.innerHTML = ''; // Clear previous content
+            statusContainer.innerHTML = '';
             statuses.forEach(server => {
-                const statusClass = server.status.toLowerCase() === 'online' ? 'status-online' : 'status-offline';
+                const statusClass = server.status.toLowerCase();
                 statusContainer.innerHTML += `
                     <div class="status-row">
                         <span>${server.name}</span>
@@ -45,33 +69,29 @@
             });
         }
 
-        // Function to create a desktop notification
         function showNotification(title, options) {
             if (Notification.permission === 'granted') {
                 new Notification(title, options);
             }
         }
 
-        // --- Main Logic ---
-
-        // 1. Ask for permission to show notifications when the button is clicked
+        // --- CHANGE 3: Logic to change button when notifications are enabled ---
         notifyBtn.addEventListener('click', () => {
             Notification.requestPermission().then(permission => {
                 if (permission === 'granted') {
                     console.log('Notification permission granted.');
-                    notifyBtn.style.display = 'none'; // Hide the button
+                    notifyBtn.textContent = 'Notifications Enabled';
+                    notifyBtn.disabled = true; // This will trigger the green color via the CSS :disabled state
+
                     showNotification('Notifications Enabled', { body: 'You will now be alerted of server status changes.' });
                 }
             });
         });
 
-
-        // 2. Fetch the initial status when the page loads
         fetch('/api/initial-status')
             .then(res => res.json())
             .then(renderStatuses);
 
-        // 3. Connect to the server for real-time events
         const eventSource = new EventSource('/events');
 
         eventSource.onmessage = (event) => {
@@ -81,7 +101,6 @@
                 console.log('Received status change from server:', data);
                 renderStatuses(data.payload);
 
-                // Find what changed to create a meaningful notification
                 const oldStatuses = data.oldPayload;
                 const newStatuses = data.payload;
                 let changes = [];
@@ -95,8 +114,8 @@
 
                 if (changes.length > 0) {
                     showNotification('Epoch Server Status Changed!', {
-                        body: changes.join('\n'), // e.g., "Login Server is now OFFLINE"
-                        icon: 'https://cdn-icons-png.flaticon.com/512/1004/1004735.png' // A generic server icon
+                        body: changes.join('\n'),
+                        icon: 'https://cdn-icons-png.flaticon.com/512/1004/1004735.png'
                     });
                 }
             }

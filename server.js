@@ -56,10 +56,6 @@ async function checkServerStatus() {
     const $ = cheerio.load(html);
     
     const newStatuses = [];
-
-    // ================== THE FINAL, CORRECT SCRAPER ==================
-    // This finds each server DIV by its ID, and checks the class for the status.
-    // This is robust and cannot be contaminated by other text on the page.
     $('div.text-center div[id]').each((i, element) => {
       const serverName = $(element).attr('id');
       const p_tag = $(element).find('p');
@@ -71,15 +67,13 @@ async function checkServerStatus() {
         serverStatus = 'Down';
       }
 
-      // Final check to ensure we have valid data
       if (serverName && serverStatus !== 'Unknown') {
         newStatuses.push({ name: serverName, status: serverStatus });
       }
     });
-    // ==========================================================
 
     if (newStatuses.length === 0) {
-      console.log('Scrape returned 0 servers. This should not happen. Skipping update.');
+      console.log('Scrape returned 0 servers. Skipping update.');
       return; 
     }
     
@@ -104,7 +98,17 @@ async function checkServerStatus() {
         });
     }
 
-    await redis.set('serverStatuses', newStatusesString);
+    // ================== THE FINAL BULLETPROOF CHECK ==================
+    // This is a hard gate. We will not allow a non-string or empty string to be saved.
+    if (typeof newStatusesString === 'string' && newStatusesString.length > 2) { // > 2 to avoid saving "[]"
+        await redis.set('serverStatuses', newStatusesString);
+    } else {
+        // If this log ever appears, it will tell us the source of the corruption.
+        console.error('CRITICAL FAILURE: Attempted to write invalid data to Redis. Halting write operation.');
+        console.error('Data Type:', typeof newStatusesString);
+        console.error('Data Value:', newStatusesString);
+    }
+    // =================================================================
 
   } catch (error) {
     console.error('Error in checkServerStatus function:', error.message);

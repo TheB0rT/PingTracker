@@ -41,7 +41,7 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (Updated with diagnostics and defense) ---
+// --- 4. The Core Scraper Function (Now with Paranoid Validation) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
@@ -58,36 +58,39 @@ async function checkServerStatus() {
         newStatuses.push({ name: serverName, status: serverStatus });
       }
     });
-
-    const oldStatusesJSON = await redis.get('serverStatuses');
     
-    // ================== NEW DIAGNOSTIC LOG ==================
-    // This will show us the exact content of the variable before the check.
-    console.log(`DEBUG: oldStatusesJSON from Redis is: >${oldStatusesJSON}<`);
-    // ========================================================
+    // Convert our freshly scraped data to a string once.
+    const newStatusesString = JSON.stringify(newStatuses);
 
-    if (oldStatusesJSON && JSON.stringify(newStatuses) !== oldStatusesJSON) {
-        console.log('STATUS CHANGE DETECTED!');
-        
-        // ================== NEW DEFENSIVE BLOCK ==================
-        // We will try to parse the JSON, but if it fails, we won't crash.
+    // --- The New, Robust Logic ---
+    const oldStatusesJSON = await redis.get('serverStatuses');
+    let oldStatuses = null;
+
+    // First, check if there's any old data at all.
+    if (oldStatusesJSON) {
+        // If there is, immediately try to parse it. This is our validation step.
         try {
-            const oldPayload = JSON.parse(oldStatusesJSON);
-            
-            broadcast({
-                type: 'STATUS_CHANGE',
-                payload: newStatuses,
-                oldPayload: oldPayload
-            });
-        } catch (parseError) {
-            console.error('CRITICAL: Failed to parse oldStatusesJSON even after passing the check. The invalid data was:', oldStatusesJSON);
-            console.error(parseError);
+            oldStatuses = JSON.parse(oldStatusesJSON);
+        } catch (e) {
+            console.error('CORRUPTED DATA IN REDIS! Deleting key to self-heal. Error:', e.message);
+            console.error('Corrupted data was:', oldStatusesJSON);
+            await redis.del('serverStatuses'); // Self-heal by deleting the bad key.
+            // oldStatuses remains null.
         }
-        // ========================================================
     }
 
-    // Always update Redis with the latest status
-    await redis.set('serverStatuses', JSON.stringify(newStatuses));
+    // We only proceed if we successfully parsed the old data and it's different from the new data.
+    if (oldStatuses && newStatusesString !== oldStatusesJSON) {
+        console.log('STATUS CHANGE DETECTED!');
+        broadcast({
+            type: 'STATUS_CHANGE',
+            payload: newStatuses,
+            oldPayload: oldStatuses // Use the safely parsed object
+        });
+    }
+
+    // Always update Redis with the latest VALID status string.
+    await redis.set('serverStatuses', newStatusesString);
 
   } catch (error) {
     console.error('Error in checkServerStatus function:', error.message);

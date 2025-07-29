@@ -16,38 +16,32 @@ const redis = new Redis({
 });
 
 // --- 3. Set up for Server-Sent Events (SSE) ---
-let clients = []; // This array will hold all connected browser clients
+let clients = []; 
 
-// This function will send a message to all connected clients
 function broadcast(data) {
   clients.forEach(client => {
-    // The "data:" prefix and "\n\n" suffix are required by the SSE spec
     client.res.write(`data: ${JSON.stringify(data)}\n\n`);
   });
 }
 
-// The new /events endpoint for browsers to connect to
 app.get('/events', (req, res) => {
-  // Set headers required for SSE
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders(); // Send headers immediately
+  res.flushHeaders(); 
 
-  // Add this client to our list
   const clientId = Date.now();
   const newClient = { id: clientId, res };
   clients.push(newClient);
   console.log(`Client ${clientId} connected.`);
 
-  // Handle client disconnect
   req.on('close', () => {
     clients = clients.filter(client => client.id !== clientId);
     console.log(`Client ${clientId} disconnected.`);
   });
 });
 
-// --- 4. The Core Scraper Function (Updated Logic) ---
+// --- 4. The Core Scraper Function (Updated with defensive checks) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
@@ -56,7 +50,6 @@ async function checkServerStatus() {
     const html = response.data;
     const $ = cheerio.load(html);
 
-    // Scrape the status into a structured format
     const newStatuses = [];
     $('tbody tr').each((i, row) => {
       const serverName = $(row).find('td').eq(0).text().trim();
@@ -69,16 +62,15 @@ async function checkServerStatus() {
     // Get the old status from our Redis database
     const oldStatusesJSON = await redis.get('serverStatuses');
     
-    // Compare the old status with the new one
-    // We stringify them for a simple and reliable comparison
+    // **THE FIX IS HERE:** Check if oldStatusesJSON actually exists before comparing
     if (oldStatusesJSON && JSON.stringify(newStatuses) !== oldStatusesJSON) {
         console.log('STATUS CHANGE DETECTED!');
         
-        // A change occurred! Broadcast it to all connected browsers.
+        // **AND HERE:** Safely parse the old status for the broadcast payload
         broadcast({
             type: 'STATUS_CHANGE',
             payload: newStatuses,
-            oldPayload: JSON.parse(oldStatusesJSON) // Send old status for comparison
+            oldPayload: JSON.parse(oldStatusesJSON) // It's safe to parse here because we know it exists
         });
     }
 
@@ -86,7 +78,8 @@ async function checkServerStatus() {
     await redis.set('serverStatuses', JSON.stringify(newStatuses));
 
   } catch (error) {
-    console.error('Error checking server status:', error.message);
+    // Improved error logging
+    console.error('Error in checkServerStatus function:', error.message);
   }
 }
 
@@ -97,8 +90,11 @@ app.get('/', (req, res) => {
 
 // An endpoint to get the initial status when the page first loads
 app.get('/api/initial-status', async (req, res) => {
-    const statuses = await redis.get('serverStatuses');
-    res.json(JSON.parse(statuses || '[]'));
+    const statusesJSON = await redis.get('serverStatuses');
+    
+    // **THE FIX IS HERE TOO:** Safely parse the data before sending
+    const statuses = statusesJSON ? JSON.parse(statusesJSON) : [];
+    res.json(statuses);
 });
 
 // --- 6. Start Everything ---
@@ -106,8 +102,6 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   
   // Schedule the check to run every minute
-  // cron.schedule('* * * * *', checkServerStatus);
-  // For testing, let's run it every 10 seconds. Change back for production.
   cron.schedule('* * * * *', checkServerStatus); 
   console.log('Cron job scheduled to run every minute.');
-});
+});``

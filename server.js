@@ -41,7 +41,7 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (With a final diagnostic log) ---
+// --- 4. The Core Scraper Function (FINAL version) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
@@ -56,20 +56,30 @@ async function checkServerStatus() {
     const $ = cheerio.load(html);
     
     const newStatuses = [];
-    $('div.text-center p').each((i, element) => {
-      const text = $(element).text();
-      if (text.includes(':')) {
-        const parts = text.split(':');
-        const serverName = parts[0].trim();
-        const serverStatus = parts[1].trim();
-        if (serverName && serverStatus) {
-          newStatuses.push({ name: serverName, status: serverStatus });
-        }
+
+    // ================== THE FINAL, CORRECT SCRAPER ==================
+    // This finds each server DIV by its ID, and checks the class for the status.
+    // This is robust and cannot be contaminated by other text on the page.
+    $('div.text-center div[id]').each((i, element) => {
+      const serverName = $(element).attr('id');
+      const p_tag = $(element).find('p');
+      let serverStatus = 'Unknown';
+
+      if (p_tag.hasClass('up')) {
+        serverStatus = 'Up';
+      } else if (p_tag.hasClass('down')) {
+        serverStatus = 'Down';
+      }
+
+      // Final check to ensure we have valid data
+      if (serverName && serverStatus !== 'Unknown') {
+        newStatuses.push({ name: serverName, status: serverStatus });
       }
     });
+    // ==========================================================
 
     if (newStatuses.length === 0) {
-      console.log('Scrape returned 0 servers. Website structure may have changed. Skipping update.');
+      console.log('Scrape returned 0 servers. This should not happen. Skipping update.');
       return; 
     }
     
@@ -81,7 +91,7 @@ async function checkServerStatus() {
         try {
             oldStatuses = JSON.parse(oldStatusesJSON);
         } catch (e) {
-            console.error('Found corrupted data in Redis, will overwrite with fresh data. Error:', e.message);
+            console.error('Found corrupted data in Redis, will overwrite now. Error:', e.message);
         }
     }
 
@@ -93,12 +103,6 @@ async function checkServerStatus() {
             oldPayload: oldStatuses
         });
     }
-
-    // ================== THE FINAL DIAGNOSTIC LOGS ==================
-    console.log('>>> Preparing to write to Redis.');
-    console.log('>>> Data to be written:', newStatusesString);
-    console.log('>>> Type of data:', typeof newStatusesString);
-    // =============================================================
 
     await redis.set('serverStatuses', newStatusesString);
 

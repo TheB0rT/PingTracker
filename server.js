@@ -41,7 +41,12 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (Based on ACTUAL site content) ---
+// Helper function to escape special characters for use in a regular expression
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+}
+
+// --- 4. The Core Scraper Function (With all fixes) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
@@ -54,16 +59,15 @@ async function checkServerStatus() {
 
     const html = response.data;
     const $ = cheerio.load(html);
-    const bodyText = $('body').text(); // Get the single line of text, e.g., "...Auth Server: Down Kezan (PvE): Down..."
+    const bodyText = $('body').text();
     
     const newStatuses = [];
-    // Define the exact server names to look for
     const serverNames = ["Epoch Website", "Auth Server", "Kezan (PvE)", "Gurubashi (PvP)", "Acct Registration"];
 
-    // For each server name, find its status in the text string
     serverNames.forEach(serverName => {
-      // This regex looks for the server name, a colon, whitespace, and captures the next word (Up/Down)
-      const regex = new RegExp(`${serverName}:\\s*(\\w+)`);
+      // Use the helper function to make the server name safe for regex
+      const escapedServerName = escapeRegExp(serverName);
+      const regex = new RegExp(`${escapedServerName}:\\s*(\\w+)`);
       const match = bodyText.match(regex);
 
       if (match && match[1]) {
@@ -97,6 +101,7 @@ async function checkServerStatus() {
         });
     }
 
+    // This is the only place we write to Redis, now with clean data.
     await redis.set('serverStatuses', newStatusesString);
 
   } catch (error) {

@@ -3,80 +3,109 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Epoch Server Ping Countdown</title>
+    <title>Epoch Server Status Monitor</title>
     <style>
         body { background-color: #1a1a2e; color: #e0e0e0; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; text-align: center; }
-        .container { padding: 40px; background-color: #16213e; border-radius: 15px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3); }
+        .container { padding: 40px; background-color: #16213e; border-radius: 15px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3); min-width: 300px; }
         h1 { color: #0f3460; margin-top: 0; }
-        #countdown { font-size: 4rem; font-weight: bold; color: #e94560; letter-spacing: 4px; }
-        p { font-size: 1.2rem; }
-        #status-text { font-size: 0.9rem; color: #aaa; min-height: 1.2em; }
+        #status-container { margin-top: 20px; text-align: left; }
+        .status-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a3a5e; }
+        .status-row:last-child { border-bottom: none; }
+        .status-online { color: #50fa7b; }
+        .status-offline { color: #ff5555; font-weight: bold; }
+        button { background-color: #e94560; color: white; border: none; padding: 10px 15px; border-radius: 5px; font-size: 1rem; cursor: pointer; margin-top: 20px; }
     </style>
 </head>
 <body>
-
     <div class="container">
         <h1>Epoch Server Status</h1>
-        <p>Next server update is estimated in:</p>
-        <div id="countdown">--:--</div>
-        <p id="status-text">Fetching status from server...</p>
+        <div id="status-container"><p>Loading status...</p></div>
+        <button id="notify-btn">Enable Notifications</button>
     </div>
 
     <script>
-        const countdownElement = document.getElementById('countdown');
-        const statusTextElement = document.getElementById('status-text');
-        let countdownInterval;
+        const statusContainer = document.getElementById('status-container');
+        const notifyBtn = document.getElementById('notify-btn');
 
-        async function startCountdown() {
-            try {
-                // Step 1: Ask our backend for the last ping time
-                const response = await fetch('/api/status');
-                const data = await response.json();
+        // Function to render the server statuses on the page
+        function renderStatuses(statuses) {
+            if (!statuses || statuses.length === 0) {
+                statusContainer.innerHTML = '<p>Status not available yet.</p>';
+                return;
+            }
+            statusContainer.innerHTML = ''; // Clear previous content
+            statuses.forEach(server => {
+                const statusClass = server.status.toLowerCase() === 'online' ? 'status-online' : 'status-offline';
+                statusContainer.innerHTML += `
+                    <div class="status-row">
+                        <span>${server.name}</span>
+                        <span class="${statusClass}">${server.status}</span>
+                    </div>
+                `;
+            });
+        }
 
-                if (!data.lastPingTime) {
-                    countdownElement.textContent = "??:??";
-                    statusTextElement.textContent = "Waiting for the first server change to be detected...";
-                    return; // Stop here if we don't have a time yet
-                }
-
-                // Step 2: Calculate when the next ping should happen (1 hour after the last one)
-                const lastPing = new Date(data.lastPingTime);
-                const nextPingTime = new Date(lastPing.getTime() + 60 * 60 * 1000); // Add 1 hour
-
-                statusTextElement.textContent = `Last update detected at: ${lastPing.toLocaleTimeString()}`;
-
-                // Clear any previous interval to prevent multiple timers running
-                if (countdownInterval) clearInterval(countdownInterval);
-
-                // Step 3: Start the countdown timer, updating every second
-                countdownInterval = setInterval(() => {
-                    const now = new Date();
-                    const diff = nextPingTime - now;
-
-                    if (diff <= 0) {
-                        countdownElement.textContent = "00:00";
-                        statusTextElement.textContent = "A new ping should have occurred. Awaiting detection...";
-                        clearInterval(countdownInterval);
-                        // Optional: re-fetch status after a few seconds
-                        setTimeout(startCountdown, 5000); 
-                        return;
-                    }
-
-                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-                    
-                    countdownElement.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                }, 1000);
-
-            } catch (error) {
-                console.error('Failed to fetch status:', error);
-                statusTextElement.textContent = "Could not connect to the backend server.";
+        // Function to create a desktop notification
+        function showNotification(title, options) {
+            if (Notification.permission === 'granted') {
+                new Notification(title, options);
             }
         }
 
-        // Start the whole process when the page loads
-        startCountdown();
-    </script>
+        // --- Main Logic ---
 
+        // 1. Ask for permission to show notifications when the button is clicked
+        notifyBtn.addEventListener('click', () => {
+            Notification.requestPermission().then(permission => {
+                if (permission === 'granted') {
+                    console.log('Notification permission granted.');
+                    notifyBtn.style.display = 'none'; // Hide the button
+                    showNotification('Notifications Enabled', { body: 'You will now be alerted of server status changes.' });
+                }
+            });
+        });
+
+
+        // 2. Fetch the initial status when the page loads
+        fetch('/api/initial-status')
+            .then(res => res.json())
+            .then(renderStatuses);
+
+        // 3. Connect to the server for real-time events
+        const eventSource = new EventSource('/events');
+
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'STATUS_CHANGE') {
+                console.log('Received status change from server:', data);
+                renderStatuses(data.payload);
+
+                // Find what changed to create a meaningful notification
+                const oldStatuses = data.oldPayload;
+                const newStatuses = data.payload;
+                let changes = [];
+
+                newStatuses.forEach(newServer => {
+                    const oldServer = oldStatuses.find(s => s.name === newServer.name);
+                    if (oldServer && oldServer.status !== newServer.status) {
+                        changes.push(`${newServer.name} is now ${newServer.status}`);
+                    }
+                });
+
+                if (changes.length > 0) {
+                    showNotification('Epoch Server Status Changed!', {
+                        body: changes.join('\n'), // e.g., "Login Server is now OFFLINE"
+                        icon: 'https://cdn-icons-png.flaticon.com/512/1004/1004735.png' // A generic server icon
+                    });
+                }
+            }
+        };
+
+        eventSource.onerror = (err) => {
+            console.error('EventSource failed:', err);
+            statusContainer.innerHTML = '<p style="color:#ff5555;">Lost connection to the server. Please refresh.</p>';
+        };
+    </script>
 </body>
 </html>

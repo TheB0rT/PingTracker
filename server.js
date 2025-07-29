@@ -41,7 +41,7 @@ app.get('/events', (req, res) => {
   });
 });
 
-// --- 4. The Core Scraper Function (Updated with defensive checks) ---
+// --- 4. The Core Scraper Function (Updated with diagnostics and defense) ---
 async function checkServerStatus() {
   try {
     console.log('Checking server status...');
@@ -59,26 +59,37 @@ async function checkServerStatus() {
       }
     });
 
-    // Get the old status from our Redis database
     const oldStatusesJSON = await redis.get('serverStatuses');
     
-    // **THE FIX IS HERE:** Check if oldStatusesJSON actually exists before comparing
+    // ================== NEW DIAGNOSTIC LOG ==================
+    // This will show us the exact content of the variable before the check.
+    console.log(`DEBUG: oldStatusesJSON from Redis is: >${oldStatusesJSON}<`);
+    // ========================================================
+
     if (oldStatusesJSON && JSON.stringify(newStatuses) !== oldStatusesJSON) {
         console.log('STATUS CHANGE DETECTED!');
         
-        // **AND HERE:** Safely parse the old status for the broadcast payload
-        broadcast({
-            type: 'STATUS_CHANGE',
-            payload: newStatuses,
-            oldPayload: JSON.parse(oldStatusesJSON) // It's safe to parse here because we know it exists
-        });
+        // ================== NEW DEFENSIVE BLOCK ==================
+        // We will try to parse the JSON, but if it fails, we won't crash.
+        try {
+            const oldPayload = JSON.parse(oldStatusesJSON);
+            
+            broadcast({
+                type: 'STATUS_CHANGE',
+                payload: newStatuses,
+                oldPayload: oldPayload
+            });
+        } catch (parseError) {
+            console.error('CRITICAL: Failed to parse oldStatusesJSON even after passing the check. The invalid data was:', oldStatusesJSON);
+            console.error(parseError);
+        }
+        // ========================================================
     }
 
     // Always update Redis with the latest status
     await redis.set('serverStatuses', JSON.stringify(newStatuses));
 
   } catch (error) {
-    // Improved error logging
     console.error('Error in checkServerStatus function:', error.message);
   }
 }
@@ -88,11 +99,8 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// An endpoint to get the initial status when the page first loads
 app.get('/api/initial-status', async (req, res) => {
     const statusesJSON = await redis.get('serverStatuses');
-    
-    // **THE FIX IS HERE TOO:** Safely parse the data before sending
     const statuses = statusesJSON ? JSON.parse(statusesJSON) : [];
     res.json(statuses);
 });
@@ -100,8 +108,6 @@ app.get('/api/initial-status', async (req, res) => {
 // --- 6. Start Everything ---
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  
-  // Schedule the check to run every minute
   cron.schedule('* * * * *', checkServerStatus); 
   console.log('Cron job scheduled to run every minute.');
-});``
+});
